@@ -843,83 +843,112 @@ const AlarmTrigger = {
     }
 };
 
-// ===== 强制锁屏（五重检测：visibility + blur/focus + 窗口尺寸 + hasFocus轮询 + 心跳漂移） =====
+// ===== 悬浮窗状态检测器（纯检测，不触发惩罚/锁屏） =====
 const ForceLock = {
     enabled: true,
     active: false,
-    leaveCount: 0,
-    totalAwaySeconds: 0,
-    leaveStartTime: null,
-    penaltyMinutes: 0,
-    heartbeatInterval: null,
-    hasFocusInterval: null,
-    lastHeartbeatTime: 0,
-    _wasThrottled: false,
-    // 窗口尺寸检测 — 状态机模式
-    // normal: 正常全屏监控，发现缩小 → lock
-    // locked: 锁屏中，仅监控是否放大（自动恢复），不重复触发锁屏
-    _sizeState: 'normal',        // 'normal' | 'locked'
-    _fullW: 0, _fullH: 0,           // 真正的全屏基准 innerWidth/Height（只在 auto-resume 时更新）
-    _fullScreenW: 0, _fullScreenH: 0, // 页面加载时的 screen.width/height（悬浮窗会改变 screen 值，这是最可靠的全屏锚点）
-    _baselineW: 0, _baselineH: 0,   // 当前"正常"尺寸（用于跟踪变化但不用来做缩小对比）
-    _lockW: 0, _lockH: 0,           // 锁屏时的 inner 尺寸
-    _lockScreenW: 0, _lockScreenH: 0, // 锁屏时的 screen.width/height
-    _shrinkCount: 0,                // 连续检测到缩小的次数（≥2 才触发锁屏）
-    _growCount: 0,                  // 连续检测到放大的次数（≥2 才自动恢复）
-    _resizeGraceUntil: 0,
-    RESIZE_GRACE: 4000,
-    SHRINK_THRESHOLD: 0.88,         // innerWidth/Height 缩小到 88% → 视为悬浮窗
-    GROW_THRESHOLD: 0.08,           // 相比锁屏时变大 8% → 视为恢复全屏
-    HEARTBEAT_INTERVAL: 500,
-    THROTTLE_THRESHOLD: 1500,
-    HAS_FOCUS_INTERVAL: 1000,
-    SIZE_CHECK_INTERVAL: 3,         // 每3次心跳检测一次（=1.5秒）
+    // 页面加载时的全屏尺寸锚点（只设一次，不更新）
+    _anchorW: 0,
+    _anchorH: 0,
+    // 当前状态
+    _isFloat: false,        // true = 悬浮窗, false = 全屏
+    _indicator: null,       // 状态指示器 DOM
+    _pollTimer: null,
+    _msgTimer: null,
 
     init() {
-        // 第1层：页面可见性变化（切标签页/锁屏）
-        document.addEventListener('visibilitychange', () => {
-            if (!this.enabled || !this.active) return;
-            if (document.hidden) this.onLeave();
-            else { this.onReturn(); this._checkRecovery(); }
-        });
+        // 页面加载时记录全屏锚点
+        this._anchorW = window.innerWidth;
+        this._anchorH = window.innerHeight;
 
-        // 第2层：窗口失焦/聚焦（切 App / 悬浮窗点击其他 App）
-        window.addEventListener('blur', () => { if (this.enabled && this.active) this.onLeave(); });
-        window.addEventListener('focus', () => {
-            if (!this.enabled || !this.active) return;
-            this.onReturn();
-            this._checkRecovery();
-        });
+        // 创建状态指示器
+        this._createIndicator();
 
-        // 记录真正的全屏尺寸（页面加载时一定是全屏）
-        this._fullW = window.innerWidth;
-        this._fullH = window.innerHeight;
-        this._fullScreenW = screen.width;
-        this._fullScreenH = screen.height;
-
-        // 第3层：窗口尺寸变化 — 悬浮窗/分屏模式核心检测
-        // 全屏学习 = 正常；窗口突然变小 = 作弊
-        window.addEventListener('resize', () => this._onResize());
-
-        // 第4层：页面隐藏（移动端强制切出）
-        window.addEventListener('pagehide', () => { if (this.enabled && this.active) this.onLeave(); });
-
-        // 阻止关闭/刷新
-        window.addEventListener('beforeunload', (e) => this.onBeforeUnload(e));
-
-        // 调试面���（帮助诊断悬浮窗检测）
-        this._initDebugPanel();
-        // 立即显示初始值，之后心跳循环里持续更新
-        setTimeout(() => this._updateDebug(false), 500);
-
-        // ResizeObserver — 比 resize 事件更可靠（监听 documentElement 实际渲染尺寸）
+        // ResizeObserver：尺寸变化时立即刷新
         try {
             new ResizeObserver(() => {
-                if (this.active && !this.leaveStartTime) this._onResize();
+                if (this.active) this._checkNow();
             }).observe(document.documentElement);
         } catch(e) {}
 
+        // resize 事件也触发
+        window.addEventListener('resize', () => {
+            if (this.active) this._checkNow();
+        });
+
+        // 按钮设置（保留锁屏 UI 以备后用）
         this.setupLockButtons();
+    },
+
+    _createIndicator() {
+        const el = document.createElement('div');
+        el.id = 'float-indicator';
+        el.style.cssText = 'display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999999;padding:30px 40px;border-radius:20px;font:bold 28px sans-serif;text-align:center;pointer-events:none;transition:all 0.3s;';
+        document.body.appendChild(el);
+        this._indicator = el;
+    },
+
+    _showIndicator(text, bg, color, border) {
+        if (!this._indicator) return;
+        this._indicator.style.display = 'block';
+        this._indicator.style.background = bg;
+        this._indicator.style.color = color;
+        this._indicator.style.border = border;
+        this._indicator.textContent = text;
+    },
+
+    start() {
+        this.active = true;
+        // 刷新锚点（开始专注时一定在全屏）
+        this._anchorW = window.innerWidth;
+        this._anchorH = window.innerHeight;
+        this._isFloat = false;
+
+        // 立即检查一次
+        this._checkNow();
+
+        // 每 300ms 轮询（够快 + 不耗电）
+        this._pollTimer = setInterval(() => {
+            if (!this.active) return;
+            this._checkNow();
+        }, 300);
+    },
+
+    _checkNow() {
+        if (!this.active) return;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+
+        // 宽度缩小超过 5% 或高度缩小超过 5% → 悬浮窗
+        const wRatio = this._anchorW > 0 ? w / this._anchorW : 1;
+        const hRatio = this._anchorH > 0 ? h / this._anchorH : 1;
+        const isFloat = wRatio < 0.95 || hRatio < 0.95;
+
+        if (isFloat && !this._isFloat) {
+            // 全屏 → 悬浮窗
+            this._isFloat = true;
+            this._showIndicator(
+                `🔴 悬浮窗\n${w}x${h} (全屏${this._anchorW}x${this._anchorH})`,
+                'rgba(200,20,20,0.92)', '#fff', '4px solid #f00'
+            );
+        } else if (!isFloat && this._isFloat) {
+            // 悬浮窗 → 全屏
+            this._isFloat = false;
+            // 刷新锚点
+            this._anchorW = w;
+            this._anchorH = h;
+            this._showIndicator(
+                `🟢 全屏\n${w}x${h}`,
+                'rgba(20,180,20,0.92)', '#fff', '4px solid #0f0'
+            );
+            // 绿标 2 秒后自动消失
+            if (this._msgTimer) clearTimeout(this._msgTimer);
+            this._msgTimer = setTimeout(() => {
+                if (this._indicator && !this._isFloat) {
+                    this._indicator.style.display = 'none';
+                }
+            }, 2000);
+        }
     },
 
     setupLockButtons() {
@@ -936,396 +965,8 @@ const ForceLock = {
         });
     },
 
-    start() {
-        this.active = true;
-        this.leaveCount = 0;
-        this.totalAwaySeconds = 0;
-        this.penaltyMinutes = 0;
-        this.leaveStartTime = null;
-        this._wasThrottled = false;
-        this._sizeState = 'normal';
-        this._fullW = window.innerWidth;
-        this._fullH = window.innerHeight;
-        this._fullScreenW = screen.width;
-        this._fullScreenH = screen.height;
-        this._baselineW = window.innerWidth;
-        this._baselineH = window.innerHeight;
-        this._lockW = 0; this._lockH = 0;
-        this._lockScreenW = 0; this._lockScreenH = 0;
-        this._shrinkCount = 0;
-        this._growCount = 0;
-        this._resizeGraceUntil = Date.now() + this.RESIZE_GRACE;
-
-        if (this.enabled) {
-            this.lastHeartbeatTime = Date.now();
-            let heartbeatCount = 0;
-            this.heartbeatInterval = setInterval(() => {
-                if (!this.active) return;
-                const now = Date.now();
-                heartbeatCount++;
-
-                // 检测A：心跳漂移 — 定时器被节流 = 后台/锁屏
-                const gap = now - this.lastHeartbeatTime;
-                if (gap > this.THROTTLE_THRESHOLD) {
-                    if (!this.leaveStartTime) this._recordLeaveAtTime(this.lastHeartbeatTime);
-                    this._wasThrottled = true;
-                } else if (this._wasThrottled && this.leaveStartTime) {
-                    this._wasThrottled = false;
-                    setTimeout(() => this.onReturn(), 100);
-                }
-
-                // 检测B：窗口尺寸变化（状态机）
-                if (heartbeatCount % this.SIZE_CHECK_INTERVAL === 0) {
-                    this._checkSize();
-                }
-
-                this.lastHeartbeatTime = now;
-            }, this.HEARTBEAT_INTERVAL);
-
-            // hasFocus 轮询
-            this.hasFocusInterval = setInterval(() => {
-                if (!this.active || this.leaveStartTime) return;
-                if (!document.hasFocus()) this._recordLeaveAtTime(Date.now());
-            }, this.HAS_FOCUS_INTERVAL);
-        }
-    },
-
-    // 状态机核心：检查窗口尺寸变化
-    _checkSize() {
-        if (Date.now() < this._resizeGraceUntil) return;
-
-        const curW = window.innerWidth;
-        const curH = window.innerHeight;
-
-        if (this._sizeState === 'normal') {
-            // 正常模式：检测缩小（→ 悬浮窗）
-            if (this._isLockScreenActive()) return; // 已被其他方式触发锁屏
-
-            const wRatio = this._fullW > 0 ? curW / this._fullW : 1;
-            const hRatio = this._fullH > 0 ? curH / this._fullH : 1;
-
-            const isShrunk = wRatio < this.SHRINK_THRESHOLD || hRatio < this.SHRINK_THRESHOLD;
-            this._updateDebug(isShrunk ? '🔴 缩小' : '🟢 正常',
-                `全屏基准:${this._fullW}x${this._fullH} 基准:${this._baselineW}x${this._baselineH} 当前:${curW}x${curH} 状态:normal 缩小计数:${this._shrinkCount}`);
-
-            if (isShrunk) {
-                this._shrinkCount++;
-                if (this._shrinkCount >= 2) {
-                    // 悬浮窗确认 → 直接锁屏
-                    this._lockW = curW;
-                    this._lockH = curH;
-                    this._lockScreenW = screen.width;
-                    this._lockScreenH = screen.height;
-                    this._sizeState = 'locked';
-                    this._shrinkCount = 0;
-                    this._growCount = 0;
-                    this._doLock();
-                }
-            } else {
-                // 尺寸正常，更新基准（适应合理的窗口大小变化）
-                this._baselineW = curW;
-                this._baselineH = curH;
-                this._shrinkCount = 0;
-            }
-        } else if (this._sizeState === 'locked') {
-            // 锁屏模式：仅检测放大（→ 恢复全屏），不重复触发锁屏
-            // 检查是否锁屏已解除（用户手动恢复）
-            if (!this._isLockScreenActive()) {
-                // 锁屏已关闭 → 回到 normal，接受当前尺寸為新基准
-                this._sizeState = 'normal';
-                this._baselineW = curW;
-                this._baselineH = curH;
-                this._shrinkCount = 0;
-                this._growCount = 0;
-                this._updateDebug('🟢 恢复', `全屏基准:${this._fullW}x${this._fullH} 当前:${curW}x${curH} 状态:${this._sizeState}`);
-                return;
-            }
-
-            // 路径0：screen.width 恢复 — 最可靠的信号（你确认过它会变）
-            const swBack = this._fullScreenW > 0 ? screen.width / this._fullScreenW : 1;
-            const shBack = this._fullScreenH > 0 ? screen.height / this._fullScreenH : 1;
-            if (swBack >= 0.95 && shBack >= 0.95) {
-                this._updateDebug('🟢 screen恢复', `screen:${screen.width}x${screen.height} 全屏screen:${this._fullScreenW}x${this._fullScreenH}`);
-                this._autoResume();
-                return;
-            }
-
-            // 路径1：绝对检测 — 当前尺寸恢复到全屏基准的90%以上 → 立即恢复
-            const wBackToFull = this._fullW > 0 ? curW / this._fullW : 1;
-            const hBackToFull = this._fullH > 0 ? curH / this._fullH : 1;
-            if (wBackToFull >= 0.90 && hBackToFull >= 0.90) {
-                this._updateDebug('🟢 恢复到全屏', `全屏基准:${this._fullW}x${this._fullH} 当前:${curW}x${curH}`);
-                this._autoResume();
-                return;
-            }
-
-            // 路径2：相对检测 — 相比锁屏时的尺寸放大了
-            const wGrow = this._lockW > 0 ? (curW - this._lockW) / this._lockW : 0;
-            const hGrow = this._lockH > 0 ? (curH - this._lockH) / this._lockH : 0;
-            const hasGrown = wGrow > this.GROW_THRESHOLD || hGrow > this.GROW_THRESHOLD;
-
-            this._updateDebug(hasGrown ? '🔵 放大' : '🔴 锁屏中',
-                `全屏:${this._fullW}x${this._fullH} scr:${screen.width}x${screen.height}(基准${this._fullScreenW}x${this._fullScreenH}) 放大:${this._growCount} wR:${wBackToFull.toFixed(2)} swR:${swBack.toFixed(2)}`);
-
-            if (hasGrown) {
-                this._growCount++;
-                if (this._growCount >= 2) {
-                    // 自动恢复！
-                    this._autoResume();
-                }
-            } else {
-                this._growCount = 0;
-            }
-        }
-    },
-
-    // focus/visibility 恢复时立即检查（先读快照显示诊断），然后延迟再检查（等 resize 落地）
-    _checkRecovery() {
-        if (this._sizeState !== 'locked') return;
-        if (!this._isLockScreenActive()) return;
-
-        // 立刻读一次，显示诊断面板
-        const snapW = window.innerWidth;
-        const snapH = window.innerHeight;
-        const snapSW = screen.width;
-        const snapSH = screen.height;
-        const wR0 = this._fullW > 0 ? snapW / this._fullW : 1;
-        const hR0 = this._fullH > 0 ? snapH / this._fullH : 1;
-        const swR0 = this._fullScreenW > 0 ? snapSW / this._fullScreenW : 1;
-        const shR0 = this._fullScreenH > 0 ? snapSH / this._fullScreenH : 1;
-        this._showBigDebug(snapW, snapH, snapSW, snapSH, wR0, hR0, swR0, shR0, '(即时快照)');
-
-        // 延迟 300ms 再检查 — 等浏览器 resize 完成（focus 事件比 resize 先到）
-        this._recoveryRetries = 0;
-        this._scheduleRecoveryCheck();
-    },
-
-    _recoveryTimer: null,
-    _recoveryRetries: 0,
-    _scheduleRecoveryCheck() {
-        if (this._recoveryTimer) clearTimeout(this._recoveryTimer);
-        this._recoveryTimer = setTimeout(() => {
-            if (this._sizeState !== 'locked' || !this._isLockScreenActive()) return;
-            this._recoveryRetries++;
-
-            const curW = window.innerWidth;
-            const curH = window.innerHeight;
-            const curSW = screen.width;
-            const curSH = screen.height;
-
-            const wRatio = this._fullW > 0 ? curW / this._fullW : 1;
-            const hRatio = this._fullH > 0 ? curH / this._fullH : 1;
-            const swRatio = this._fullScreenW > 0 ? curSW / this._fullScreenW : 1;
-            const shRatio = this._fullScreenH > 0 ? curSH / this._fullScreenH : 1;
-
-            // 更新诊断面板（标记延迟次数）
-            this._showBigDebug(curW, curH, curSW, curSH, wRatio, hRatio, swRatio, shRatio, `(延迟检查#${this._recoveryRetries})`);
-
-            if ((wRatio >= 0.90 && hRatio >= 0.90) || (swRatio >= 0.95 && shRatio >= 0.95)) {
-                this._autoResume();
-                this._hideBigDebug();
-                return;
-            }
-
-            // 连查 5 次（共 1.5 秒），都没命中就放弃等心跳
-            if (this._recoveryRetries < 5) {
-                this._scheduleRecoveryCheck();
-            }
-        }, 300);
-    },
-
-    _bigDebugEl: null,
-    _showBigDebug(curW, curH, curSW, curSH, wR, hR, swR, shR, label) {
-        if (!this._bigDebugEl) {
-            const el = document.createElement('div');
-            el.id = 'focusguard-big-debug';
-            el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999999;background:rgba(0,0,0,0.92);color:#0f0;font:bold 14px/1.8 monospace;padding:20px 24px;border-radius:12px;border:3px solid #f00;text-align:center;min-width:300px;pointer-events:none;';
-            document.body.appendChild(el);
-            this._bigDebugEl = el;
-        }
-        const tag = label ? `<div style="color:#0ff;font-size:11px;">${label}</div>` : '';
-        this._bigDebugEl.style.display = 'block';
-        this._bigDebugEl.innerHTML =
-            `<div style="color:#f00;font-size:18px;margin-bottom:4px;">🔴 锁屏中 — 诊断</div>` +
-            tag +
-            `<div style="font-size:12px;">inner: ${curW}x${curH} (基准:${this._fullW}x${this._fullH})</div>` +
-            `<div style="font-size:12px;">screen: ${curSW}x${curSH} (基准:${this._fullScreenW}x${this._fullScreenH})</div>` +
-            `<div style="font-size:12px;margin-top:4px;">inner比率: ${wR.toFixed(2)} / ${hR.toFixed(2)} → ${(wR>=0.90&&hR>=0.90)?'✅达标':'❌未达标'}</div>` +
-            `<div style="font-size:12px;">screen比率: ${swR.toFixed(2)} / ${shR.toFixed(2)} → ${(swR>=0.95&&shR>=0.95)?'✅达标':'❌未达标'}</div>` +
-            `<div style="color:#ff0;font-size:11px;margin-top:6px;">切回全屏后看这里数字变化</div>`;
-    },
-    _hideBigDebug() {
-        if (this._bigDebugEl) this._bigDebugEl.style.display = 'none';
-    },
-
-    // 检查锁屏是否激活中
-    _isLockScreenActive() {
-        const overlay = document.getElementById('lockScreenOverlay');
-        return overlay && overlay.classList.contains('active');
-    },
-
-    // 直接锁屏（不经过 onLeave/onReturn，避免 2 秒阈值拦截）
-    _doLock() {
-        this.leaveCount++;
-        this.penaltyMinutes = Math.min(this.leaveCount * 2, 10);
-        FocusView.pauseTimer();
-
-        if (Store.data.settings.vibrateAlarm && 'vibrate' in navigator) {
-            navigator.vibrate([100, 50, 100]);
-        }
-
-        this.showLockScreen(0);
-    },
-
-    _autoResume() {
-        // 自动恢复：尺寸真的放大了，更新全屏基准
-        this._fullW = window.innerWidth;
-        this._fullH = window.innerHeight;
-        this._fullScreenW = screen.width;
-        this._fullScreenH = screen.height;
-        this._baselineW = window.innerWidth;
-        this._baselineH = window.innerHeight;
-        this._sizeState = 'normal';
-        this._shrinkCount = 0;
-        this._growCount = 0;
-
-        // 清除离开记录（不计算惩罚，因为用户主动切回了）
-        const wasAway = this.leaveStartTime ? Math.round((Date.now() - this.leaveStartTime) / 1000) : 0;
-        this.leaveStartTime = null;
-        this.totalAwaySeconds += wasAway;
-
-        // 显示锁屏然后立即解锁（一条流畅的恢复通知）
-        this.hideLockScreen();
-        FocusView.resumeTimer();
-
-        // 应用惩罚时间
-        if (this.penaltyMinutes > 0) {
-            const penaltySeconds = this.penaltyMinutes * 60;
-            FocusView.remaining += penaltySeconds;
-            FocusView.totalDuration += penaltySeconds;
-            FocusView.updateTimerDisplay();
-        }
-        toast('已自动检测到返回全屏，专注继续 ✅', 'success');
-    },
-
-    // Resize 事件 — 同样触发状态机检查
-    _onResize() {
-        if (!this.enabled || !this.active) return;
-        if (Date.now() < this._resizeGraceUntil) return;
-        // 只在 normal 模式重置缩水计数（防止 resize 动画误判）
-        // locked 模式不重置 — 让 _checkSize 自己处理，避免 resize 连续触发导致 _growCount 永远到不了 2
-        if (this._sizeState === 'normal') this._shrinkCount = 0;
-        this._checkSize();
-    },
-
-    // 调试面板
-    _debugEl: null,
-    _lastDebug: '',
-
-    _initDebugPanel() {
-        let el = document.getElementById('focusguard-debug');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'focusguard-debug';
-            el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;background:#000;color:#0f0;font:bold 12px/1.5 monospace;padding:6px 10px;text-align:center;border-bottom:2px solid #0f0;';
-            (document.body || document.documentElement).appendChild(el);
-        }
-        this._debugEl = el;
-    },
-
-    _updateDebug(label, detail) {
-        if (!this._debugEl) return;
-        const txt = label + ' | ' + detail +
-            ` | inner:${window.innerWidth}x${window.innerHeight}` +
-            ` | outer:${window.outerWidth}x${window.outerHeight}`;
-        if (txt !== this._lastDebug) {
-            this._debugEl.textContent = txt;
-            this._lastDebug = txt;
-            const isBad = label.includes('🔴');
-            this._debugEl.style.background = isBad ? '#900' : '#000';
-            this._debugEl.style.borderColor = isBad ? '#f00' : '#0f0';
-        }
-    },
-
-    stop() {
-        this.active = false;
-        this.leaveStartTime = null;
-        this._wasThrottled = false;
-        if (this.heartbeatInterval) {
-            clearInterval(this.heartbeatInterval);
-            this.heartbeatInterval = null;
-        }
-        if (this.hasFocusInterval) {
-            clearInterval(this.hasFocusInterval);
-            this.hasFocusInterval = null;
-        }
-    },
-
-    _recordLeaveAtTime(timestamp) {
-        if (this.leaveStartTime) return; // 已记录
-        this.leaveStartTime = timestamp;
-        this.leaveCount++;
-        FocusView.pauseTimer();
-
-        if (Store.data.settings.vibrateAlarm && 'vibrate' in navigator) {
-            navigator.vibrate([100, 50, 100]);
-        }
-    },
-
-    onBeforeUnload(e) {
-        if (!this.enabled || !this.active) return;
-        e.preventDefault();
-        e.returnValue = '专注模式正在进行中，离开将中断专注并扣除惩罚时间。确定要离开吗？';
-        return e.returnValue;
-    },
-
-    onLeave() {
-        if (!this.enabled || !this.active) return;
-        if (this.leaveStartTime) return; // 已经记录了离开
-        this._recordLeaveAtTime(Date.now());
-    },
-
-    onReturn() {
-        if (!this.enabled || !this.active) return;
-        if (!this.leaveStartTime) return; // 没有离开记录，忽略
-
-        // 重置节流标记（无论从哪个路径触发 return，都清理状态）
-        this._wasThrottled = false;
-
-        const awayMs = Date.now() - this.leaveStartTime;
-        const awaySeconds = Math.round(awayMs / 1000);
-        this.totalAwaySeconds += awaySeconds;
-        this.leaveStartTime = null;
-
-        // 低于 2 秒的切出忽略（可能是快速切回）
-        if (awaySeconds < 2) {
-            // 恢复计时器（因为 pauseTimer 已经停了）
-            FocusView.resumeTimer();
-            return;
-        }
-
-        // 计算惩罚时间（每次离开加 2 分钟，最多 10 分钟）
-        const penalty = Math.min(this.leaveCount * 2, 10);
-        this.penaltyMinutes = penalty;
-
-        // 进入锁屏状态（用于自动恢复检测）
-        if (this._sizeState !== 'locked') {
-            this._lockW = window.innerWidth;
-            this._lockH = window.innerHeight;
-            this._lockScreenW = screen.width;
-            this._lockScreenH = screen.height;
-            this._sizeState = 'locked';
-            this._growCount = 0;
-        }
-
-        // 显示锁屏
-        this.showLockScreen(awaySeconds);
-    },
-
     showLockScreen(awaySeconds) {
         const overlay = document.getElementById('lockScreenOverlay');
-
-        // 格式化离开时长
         let durationText;
         if (awaySeconds < 60) {
             durationText = `${awaySeconds} 秒`;
@@ -1335,25 +976,7 @@ const ForceLock = {
             durationText = `${mins} 分 ${secs > 0 ? secs + ' 秒' : ''}`;
         }
         document.getElementById('lockAwayDuration').textContent = durationText;
-
-        // 显示统计（离开次数>=2 时）
-        const statsEl = document.getElementById('lockScreenStats');
-        if (this.leaveCount >= 2) {
-            statsEl.style.display = 'flex';
-            document.getElementById('lockTotalAway').textContent = this.leaveCount;
-            const totalSecs = this.totalAwaySeconds;
-            document.getElementById('lockTotalAwayTime').textContent =
-                totalSecs < 60 ? `${totalSecs}s` :
-                totalSecs < 3600 ? `${Math.floor(totalSecs / 60)}m${totalSecs % 60}s` :
-                `${Math.floor(totalSecs / 3600)}h${Math.floor((totalSecs % 3600) / 60)}m`;
-            document.getElementById('lockPenalty').textContent = `${this.penaltyMinutes}m`;
-        } else {
-            statsEl.style.display = 'none';
-        }
-
         overlay.classList.add('active');
-
-        // 震动
         if (Store.data.settings.vibrateAlarm && 'vibrate' in navigator) {
             navigator.vibrate([300, 100, 300]);
         }
@@ -1365,38 +988,21 @@ const ForceLock = {
 
     resume() {
         this.hideLockScreen();
-        this._hideBigDebug();
-
-        // 手动恢复：直接接受当前尺寸为新基准，回到 normal 状态
-        this._baselineW = window.innerWidth;
-        this._baselineH = window.innerHeight;
-        this._sizeState = 'normal';
-        this._shrinkCount = 0;
-        this._growCount = 0;
-        this._resizeGraceUntil = Date.now() + this.RESIZE_GRACE;
-
-        // 恢复专注计时器
         FocusView.resumeTimer();
-
-        // 应用惩罚时间
-        if (this.penaltyMinutes > 0) {
-            const penaltySeconds = this.penaltyMinutes * 60;
-            FocusView.remaining += penaltySeconds;
-            FocusView.totalDuration += penaltySeconds;
-            FocusView.updateTimerDisplay();
-            toast(`已返回专注，因离开加时 ${this.penaltyMinutes} 分钟`, 'warning');
-        } else {
-            toast('已返回专注模式', 'success');
-        }
-
-        // 重新请求全屏和常亮
-        FocusView.requestFullscreenSafe();
-        PWA.requestWakeLock();
+        toast('已返回专注模式', 'success');
     },
 
     quit() {
         this.hideLockScreen();
-        FocusView.exitFocusWithPenalty(true, this.leaveCount, this.totalAwaySeconds);
+        FocusView.exitFocusWithPenalty(true, 0, 0);
+    },
+
+    stop() {
+        this.active = false;
+        this._isFloat = false;
+        if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
+        if (this._msgTimer) { clearTimeout(this._msgTimer); this._msgTimer = null; }
+        if (this._indicator) { this._indicator.style.display = 'none'; }
     }
 };
 
@@ -1617,15 +1223,18 @@ const FocusView = {
         if (!this.isRunning) return;
         clearInterval(this.timer);
         this.timer = null;
-        // 更新显示——倒计时文字变灰提示暂停
-        document.getElementById('focusTimerLabel').textContent = '计时已暂停';
-        document.getElementById('focusTimerDisplay').style.opacity = '0.5';
+        const label = document.getElementById('focusTimerLabel');
+        const display = document.getElementById('focusTimerDisplay');
+        if (label) label.textContent = '计时已暂停';
+        if (display) display.style.opacity = '0.5';
     },
 
     resumeTimer() {
         if (!this.isRunning || this.remaining <= 0) return;
-        document.getElementById('focusTimerLabel').textContent = '剩余时间';
-        document.getElementById('focusTimerDisplay').style.opacity = '1';
+        const label = document.getElementById('focusTimerLabel');
+        const display = document.getElementById('focusTimerDisplay');
+        if (label) label.textContent = '剩余时间';
+        if (display) display.style.opacity = '1';
         this.timer = setInterval(() => this.tick(), 1000);
         this.updateTimerDisplay();
     },

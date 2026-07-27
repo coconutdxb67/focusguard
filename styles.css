@@ -880,14 +880,18 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
     justify-content: safe center;
     z-index: 2000;
     overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
     padding: 24px;
     /* iOS 安全区域 */
     padding-top: max(24px, env(safe-area-inset-top));
     padding-bottom: max(24px, env(safe-area-inset-bottom));
+    /* 阻止下拉刷新、边缘滑动返回 */
+    overscroll-behavior: contain;
+    touch-action: none;
+    -webkit-overflow-scrolling: auto;
 }
 
 .focus-overlay.active { display: flex; }
+.focus-overlay.active ~ * { pointer-events: none; }    /* 防止透过遮罩操作底层 */
 
 .focus-content {
     text-align: center;
