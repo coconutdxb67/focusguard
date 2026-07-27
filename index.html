@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#4F46E5" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)">
+    <meta name="description" content="规划每日日程、闹钟强制提醒、专注模式限制游戏与短视频">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="专注日程">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="apple-touch-fullscreen" content="yes">
+    <title>专注日程 · FocusGuard</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+<script src="https://beacon.cdn.qq.com/sdk/4.5.9/beacon_web.min.js"></script>
+<script>
+(function(){
+  try{
+    var beacon=new BeaconAction({
+      appkey:'0WEB06U85YBSLJNL',
+      versionCode:'1.0.0',
+      channelID:'share',
+      delay:1000,
+      sessionDuration:30*60*1000,
+      isOversea:false,
+      needReportRqdEvent:false
+    });
+    beacon.onDirectUserAction('preview_page_view',{
+      'url':location.href,
+      'referrer':document.referrer,
+      'title':document.title,
+      'sandbox_id':'5168edd90dbb4fc593ad8740224bc844'
+    });
+  }catch(e){}
+})();
+</script></head>
+<body>
+    <!-- PWA 启动画面 -->
+    <div class="splash-screen" id="splashScreen">
+        <div class="splash-icon">
+            <svg width="72" height="72" viewBox="0 0 32 32" fill="none">
+                <rect width="32" height="32" rx="8" fill="white"/>
+                <path d="M16 7L16 16L22 19" stroke="#4F46E5" stroke-width="2.5" stroke-linecap="round"/>
+                <circle cx="16" cy="16" r="11" stroke="#4F46E5" stroke-width="2" stroke-opacity="0.4"/>
+            </svg>
+            <h1>FocusGuard</h1>
+            <p>专注日程守护</p>
+        </div>
+    </div>
+
+    <div id="app">
+        <!-- 侧边导航 -->
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                        <rect width="32" height="32" rx="8" fill="#4F46E5"/>
+                        <path d="M16 7L16 16L22 19" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+                        <circle cx="16" cy="16" r="11" stroke="white" stroke-width="2" stroke-opacity="0.4"/>
+                    </svg>
+                    <span>FocusGuard</span>
+                </div>
+            </div>
+            <div class="nav-items">
+                <button class="nav-item active" data-tab="schedule">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span>今日日程</span>
+                </button>
+                <button class="nav-item" data-tab="alarm">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3L2 6"/><path d="M22 6l-3-3"/></svg>
+                    <span>闹钟提醒</span>
+                </button>
+                <button class="nav-item" data-tab="focus">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                    <span>专注模式</span>
+                </button>
+                <button class="nav-item" data-tab="restrict">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                    <span>应用限制</span>
+                </button>
+                <button class="nav-item" data-tab="recommend">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                    <span>推荐日程</span>
+                </button>
+                <button class="nav-item" data-tab="stats">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                    <span>数据统计</span>
+                </button>
+            </div>
+            <div class="sidebar-footer">
+                <div class="streak-badge" id="streakBadge">
+                    <span class="streak-icon">🔥</span>
+                    <span class="streak-text">连续 <strong id="streakDays">0</strong> 天</span>
+                </div>
+            </div>
+        </nav>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 顶部栏 -->
+            <header class="top-bar">
+                <button class="menu-toggle" id="menuToggle">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                </button>
+                <div class="top-bar-info">
+                    <h1 id="pageTitle">今日日程</h1>
+                    <p id="currentDate"></p>
+                </div>
+                <button class="theme-toggle" id="themeToggle">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                </button>
+            </header>
+
+            <!-- 日程视图 -->
+            <section class="view active" id="view-schedule">
+                <div class="schedule-layout">
+                    <div class="schedule-main">
+                        <div class="section-header">
+                            <h2>时间轴</h2>
+                            <button class="btn btn-primary" id="addTaskBtn">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                添加日程
+                            </button>
+                        </div>
+                        <div class="timeline" id="timeline">
+                            <div class="empty-state" id="scheduleEmpty">
+                                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                <h3>还没有日程安排</h3>
+                                <p>点击"添加日程"开始规划你的一天</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="schedule-side">
+                        <div class="card progress-card">
+                            <h3>今日进度</h3>
+                            <div class="progress-ring-container">
+                                <svg class="progress-ring" width="120" height="120">
+                                    <circle class="progress-ring-bg" cx="60" cy="60" r="52" stroke-width="8" fill="none"/>
+                                    <circle class="progress-ring-fill" id="progressRing" cx="60" cy="60" r="52" stroke-width="8" fill="none" stroke-linecap="round" transform="rotate(-90 60 60)"/>
+                                </svg>
+                                <div class="progress-text">
+                                    <span class="progress-percent" id="progressPercent">0%</span>
+                                    <span class="progress-label" id="progressLabel">0 / 0</span>
+                                </div>
+                            </div>
+                            <div class="progress-stats">
+                                <div class="stat-mini">
+                                    <span class="stat-mini-value" id="completedCount">0</span>
+                                    <span class="stat-mini-label">已完成</span>
+                                </div>
+                                <div class="stat-mini">
+                                    <span class="stat-mini-value" id="pendingCount">0</span>
+                                    <span class="stat-mini-label">待完成</span>
+                                </div>
+                                <div class="stat-mini">
+                                    <span class="stat-mini-value" id="focusTimeToday">0h</span>
+                                    <span class="stat-mini-label">专注时长</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card next-task-card" id="nextTaskCard" style="display:none;">
+                            <h3>下一个日程</h3>
+                            <div class="next-task-info">
+                                <div class="next-task-name" id="nextTaskName"></div>
+                                <div class="next-task-time" id="nextTaskTime"></div>
+                                <div class="next-task-countdown" id="nextTaskCountdown"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 闹钟视图 -->
+            <section class="view" id="view-alarm">
+                <div class="alarm-layout">
+                    <div class="card">
+                        <div class="section-header">
+                            <h2>闹钟设置</h2>
+                            <span class="badge" id="alarmCount">0 个闹钟</span>
+                        </div>
+                        <p class="section-desc">为每个日程设置闹钟，到时间会强制全屏提醒，直到你确认才会停止。</p>
+                        <div class="alarm-list" id="alarmList">
+                            <div class="empty-state small">
+                                <p>暂无闹钟，添加日程时会自动创建</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card alarm-settings-card">
+                        <h3>提醒强度</h3>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <span class="setting-label">全屏强制提醒</span>
+                                <span class="setting-desc">闹钟触发时全屏覆盖，无法忽略</span>
+                            </div>
+                            <label class="toggle">
+                                <input type="checkbox" id="fullscreenAlarm" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <span class="setting-label">声音提醒</span>
+                                <span class="setting-desc">循环播放提示音直到确认</span>
+                            </div>
+                            <label class="toggle">
+                                <input type="checkbox" id="soundAlarm" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <span class="setting-label">浏览器通知</span>
+                                <span class="setting-desc">系统级通知提醒</span>
+                            </div>
+                            <label class="toggle">
+                                <input type="checkbox" id="notifyAlarm" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <span class="setting-label">震动提醒</span>
+                                <span class="setting-desc">移动端震动反馈</span>
+                            </div>
+                            <label class="toggle">
+                                <input type="checkbox" id="vibrateAlarm" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <span class="setting-label">强制锁屏</span>
+                                <span class="setting-desc">专注中切换/退出应用会被强制锁屏要求恢复</span>
+                            </div>
+                            <label class="toggle">
+                                <input type="checkbox" id="forceLockScreen" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <span class="setting-label">贪睡次数限制</span>
+                                <span class="setting-desc">最多可贪睡的次数</span>
+                            </div>
+                            <select class="select" id="snoozeLimit">
+                                <option value="0">不允许贪睡</option>
+                                <option value="1">1 次</option>
+                                <option value="2" selected>2 次</option>
+                                <option value="3">3 次</option>
+                            </select>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <span class="setting-label">提醒音量</span>
+                                <span class="setting-desc">调整闹钟音量</span>
+                            </div>
+                            <input type="range" id="alarmVolume" min="0" max="100" value="80" class="range-slider">
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 专注模式视图 -->
+            <section class="view" id="view-focus">
+                <div class="focus-layout">
+                    <div class="card focus-main-card">
+                        <h2>专注模式</h2>
+                        <p class="section-desc">开启专注模式后，将全屏锁定界面，限制游戏和短视频的使用。退出需要长按 5 秒确认。</p>
+                        <div class="focus-setup" id="focusSetup">
+                            <div class="form-group">
+                                <label>选择要专注的日程</label>
+                                <select class="select" id="focusTaskSelect">
+                                    <option value="">选择一个日程...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>专注时长（分钟）</label>
+                                <div class="duration-buttons">
+                                    <button class="btn btn-outline duration-btn" data-minutes="15">15</button>
+                                    <button class="btn btn-outline duration-btn active" data-minutes="25">25</button>
+                                    <button class="btn btn-outline duration-btn" data-minutes="45">45</button>
+                                    <button class="btn btn-outline duration-btn" data-minutes="60">60</button>
+                                    <button class="btn btn-outline duration-btn" data-minutes="90">90</button>
+                                </div>
+                            </div>
+                            <div class="focus-warning">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                <span>专注期间将限制以下应用：<strong id="restrictedAppsPreview">游戏、短视频等</strong></span>
+                            </div>
+                            <button class="btn btn-primary btn-large" id="startFocusBtn">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                开始专注
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card focus-info-card">
+                        <h3>专注规则</h3>
+                        <ul class="rules-list">
+                            <li><span class="rule-icon">🔒</span> 开启后自动进入全屏模式</li>
+                            <li><span class="rule-icon">🚫</span> 游戏和短视频网站将被限制</li>
+                            <li><span class="rule-icon">⏱️</span> 倒计时结束前无法退出</li>
+                            <li><span class="rule-icon">✋</span> 紧急退出需长按 5 秒</li>
+                            <li><span class="rule-icon">📊</span> 专注时长自动记录到统计</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 应用限制视图 -->
+            <section class="view" id="view-restrict">
+                <div class="restrict-layout">
+                    <div class="card">
+                        <div class="section-header">
+                            <h2>应用限制列表</h2>
+                            <button class="btn btn-outline btn-sm" id="addRestrictBtn">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                添加
+                            </button>
+                        </div>
+                        <p class="section-desc">以下应用在专注模式下会被限制访问。点击可删除。</p>
+                        <div class="restrict-grid" id="restrictGrid"></div>
+                    </div>
+                    <div class="card restrict-stats-card">
+                        <h3>限制统计</h3>
+                        <div class="restrict-stat-item">
+                            <div class="restrict-stat-icon">🎮</div>
+                            <div class="restrict-stat-info">
+                                <span class="restrict-stat-label">游戏类</span>
+                                <span class="restrict-stat-value" id="gameRestrictCount">0 个</span>
+                            </div>
+                        </div>
+                        <div class="restrict-stat-item">
+                            <div class="restrict-stat-icon">📱</div>
+                            <div class="restrict-stat-info">
+                                <span class="restrict-stat-label">短视频类</span>
+                                <span class="restrict-stat-value" id="videoRestrictCount">0 个</span>
+                            </div>
+                        </div>
+                        <div class="restrict-stat-item">
+                            <div class="restrict-stat-icon">💬</div>
+                            <div class="restrict-stat-info">
+                                <span class="restrict-stat-label">社交类</span>
+                                <span class="restrict-stat-value" id="socialRestrictCount">0 个</span>
+                            </div>
+                        </div>
+                        <div class="restrict-stat-item">
+                            <div class="restrict-stat-icon">🌐</div>
+                            <div class="restrict-stat-info">
+                                <span class="restrict-stat-label">其他</span>
+                                <span class="restrict-stat-value" id="otherRestrictCount">0 个</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 推荐日程视图 -->
+            <section class="view" id="view-recommend">
+                <div class="recommend-layout">
+                    <div class="card recommend-header-card">
+                        <div class="section-header">
+                            <h2>推荐日程库</h2>
+                            <span class="badge" id="recommendCount">0 套</span>
+                        </div>
+                        <p class="section-desc">基于名人作息、高效学习法、工作方法论的真实日程模板，一键复制到你的今日日程。</p>
+                        <div class="recommend-search-bar">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <input type="text" class="input recommend-search-input" id="recommendSearch" placeholder="搜索日程模板（如：考研、番茄、程序员、马斯克）" maxlength="40">
+                        </div>
+                        <div class="recommend-filters" id="recommendFilters">
+                            <button class="filter-chip active" data-filter="all">全部</button>
+                            <button class="filter-chip" data-filter="celebrity">名人作息</button>
+                            <button class="filter-chip" data-filter="study">学习备考</button>
+                            <button class="filter-chip" data-filter="work">工作效率</button>
+                            <button class="filter-chip" data-filter="programmer">程序员</button>
+                        </div>
+                    </div>
+                    <div class="recommend-grid" id="recommendGrid"></div>
+                </div>
+            </section>
+
+            <!-- 统计视图 -->
+            <section class="view" id="view-stats">
+                <div class="stats-layout">
+                    <div class="stats-cards">
+                        <div class="card stat-card">
+                            <div class="stat-card-icon green">✅</div>
+                            <div class="stat-card-value" id="totalCompleted">0</div>
+                            <div class="stat-card-label">累计完成任务</div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="stat-card-icon blue">⏰</div>
+                            <div class="stat-card-value" id="totalFocusTime">0h</div>
+                            <div class="stat-card-label">累计专注时长</div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="stat-card-icon orange">🔥</div>
+                            <div class="stat-card-value" id="totalStreak">0</div>
+                            <div class="stat-card-label">连续打卡天数</div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="stat-card-icon purple">🎯</div>
+                            <div class="stat-card-value" id="completionRate">0%</div>
+                            <div class="stat-card-label">平均完成率</div>
+                        </div>
+                    </div>
+                    <div class="card chart-card">
+                        <h3>本周专注时长</h3>
+                        <canvas id="weeklyChart" width="600" height="240"></canvas>
+                    </div>
+                    <div class="card history-card">
+                        <h3>最近记录</h3>
+                        <div class="history-list" id="historyList">
+                            <div class="empty-state small">
+                                <p>暂无记录，完成日程后这里会显示</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- 移动端底部导航 -->
+        <nav class="bottom-nav" id="bottomNav">
+            <button class="bottom-nav-item active" data-tab="schedule">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span>日程</span>
+            </button>
+            <button class="bottom-nav-item" data-tab="alarm">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3L2 6"/><path d="M22 6l-3-3"/></svg>
+                <span>闹钟</span>
+            </button>
+            <button class="bottom-nav-item" data-tab="focus">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                <span>专注</span>
+            </button>
+            <button class="bottom-nav-item" data-tab="restrict">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                <span>限制</span>
+            </button>
+            <button class="bottom-nav-item" data-tab="recommend">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                <span>推荐</span>
+            </button>
+            <button class="bottom-nav-item" data-tab="stats">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                <span>统计</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- 添加/编辑日程弹窗 -->
+    <div class="modal-overlay" id="taskModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="taskModalTitle">添加日程</h3>
+                <button class="modal-close" id="taskModalClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>日程名称</label>
+                    <input type="text" class="input" id="taskTitle" placeholder="例如：完成项目报告" maxlength="50">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>开始时间</label>
+                        <input type="time" class="input" id="taskStart" value="09:00">
+                    </div>
+                    <div class="form-group">
+                        <label>结束时间</label>
+                        <input type="time" class="input" id="taskEnd" value="10:00">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>分类</label>
+                        <select class="select" id="taskCategory">
+                            <option value="work">💼 工作</option>
+                            <option value="study">📚 学习</option>
+                            <option value="exercise">🏃 运动</option>
+                            <option value="life">🏠 生活</option>
+                            <option value="other">📌 其他</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>优先级</label>
+                        <select class="select" id="taskPriority">
+                            <option value="high">🔴 高</option>
+                            <option value="medium" selected>🟡 中</option>
+                            <option value="low">🟢 低</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>提醒方式</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="taskAlarm" checked>
+                            <span>闹钟提醒</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="taskAutoFocus">
+                            <span>到时自动开启专注</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>备注（可选）</label>
+                    <textarea class="input textarea" id="taskNote" placeholder="添加备注..." maxlength="200"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-danger btn-sm" id="taskDeleteBtn" style="display:none;">删除</button>
+                <div class="modal-footer-right">
+                    <button class="btn btn-outline" id="taskCancelBtn">取消</button>
+                    <button class="btn btn-primary" id="taskSaveBtn">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加限制应用弹窗 -->
+    <div class="modal-overlay" id="restrictModal">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <h3>添加限制应用</h3>
+                <button class="modal-close" id="restrictModalClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>应用/网站名称</label>
+                    <input type="text" class="input" id="restrictName" placeholder="例如：抖音" maxlength="30">
+                </div>
+                <div class="form-group">
+                    <label>分类</label>
+                    <select class="select" id="restrictCategory">
+                        <option value="game">🎮 游戏</option>
+                        <option value="video">📱 短视频</option>
+                        <option value="social">💬 社交</option>
+                        <option value="other">🌐 其他</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="restrictCancelBtn">取消</button>
+                <button class="btn btn-primary" id="restrictSaveBtn">添加</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 闹钟触发覆盖层 -->
+    <div class="alarm-overlay" id="alarmOverlay">
+        <div class="alarm-content">
+            <div class="alarm-icon-wrap">
+                <svg class="alarm-bell" width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            </div>
+            <h2 class="alarm-title" id="alarmTitle">日程提醒</h2>
+            <p class="alarm-task-name" id="alarmTaskName"></p>
+            <p class="alarm-time" id="alarmTime"></p>
+            <div class="alarm-actions">
+                <button class="btn btn-outline btn-large" id="alarmSnoozeBtn">
+                    <span id="snoozeText">贪睡 5 分钟</span>
+                </button>
+                <div class="alarm-confirm-wrap">
+                    <p class="alarm-confirm-hint">长按 3 秒确认开始</p>
+                    <button class="btn btn-primary btn-large alarm-confirm-btn" id="alarmConfirmBtn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        确认开始
+                    </button>
+                    <div class="hold-progress" id="alarmHoldProgress"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 强制锁屏覆盖层（专注中切出后返回时触发） -->
+    <div class="lock-screen-overlay" id="lockScreenOverlay">
+        <div class="lock-screen-content">
+            <div class="lock-screen-shield">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    <circle cx="12" cy="16" r="1" fill="currentColor"/>
+                </svg>
+            </div>
+            <h2 class="lock-screen-title">专注模式已锁定</h2>
+            <p class="lock-screen-desc">你刚才离开了 <strong id="lockAwayDuration">--</strong></p>
+            <p class="lock-screen-warn">⚠️ 切换应用会导致专注中断，频繁切换将被记录为逃避行为</p>
+            <div class="lock-screen-stats" id="lockScreenStats" style="display:none;">
+                <div class="lock-stat">
+                    <span class="lock-stat-value" id="lockTotalAway">0</span>
+                    <span class="lock-stat-label">累计离开次数</span>
+                </div>
+                <div class="lock-stat">
+                    <span class="lock-stat-value" id="lockTotalAwayTime">0s</span>
+                    <span class="lock-stat-label">累计离开时长</span>
+                </div>
+                <div class="lock-stat danger">
+                    <span class="lock-stat-value" id="lockPenalty">0m</span>
+                    <span class="lock-stat-label">惩罚加时</span>
+                </div>
+            </div>
+            <div class="lock-screen-actions">
+                <div class="lock-screen-action">
+                    <p class="lock-action-hint">长按确认返回专注</p>
+                    <button class="btn btn-primary btn-large lock-action-btn" id="lockResumeBtn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        返回专注
+                    </button>
+                    <div class="hold-progress hold-progress-exit" id="lockResumeProgress"><span class="hold-progress-fill"></span></div>
+                </div>
+                <div class="lock-screen-action">
+                    <p class="lock-action-hint">长按 5 秒放弃专注</p>
+                    <button class="btn btn-danger-outline btn-large lock-action-btn" id="lockQuitBtn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        放弃专注
+                    </button>
+                    <div class="hold-progress hold-progress-exit" id="lockQuitProgress"><span class="hold-progress-fill"></span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 专注模式覆盖层 -->
+    <div class="focus-overlay" id="focusOverlay">
+        <div class="focus-content">
+            <div class="focus-header">
+                <div class="focus-task-name" id="focusTaskName"></div>
+                <div class="focus-restricted-badge">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                    <span>已限制 <strong id="focusRestrictedCount">0</strong> 个应用</span>
+                </div>
+            </div>
+            <div class="focus-timer-container">
+                <svg class="focus-timer-ring" viewBox="0 0 280 280">
+                    <circle class="timer-ring-bg" cx="140" cy="140" r="130" stroke-width="6" fill="none"/>
+                    <circle class="timer-ring-fill" id="focusTimerRing" cx="140" cy="140" r="130" stroke-width="6" fill="none" stroke-linecap="round" transform="rotate(-90 140 140)"/>
+                </svg>
+                <div class="focus-timer-text">
+                    <span class="focus-timer-display" id="focusTimerDisplay">25:00</span>
+                    <span class="focus-timer-label">剩余时间</span>
+                </div>
+            </div>
+            <div class="focus-restricted-list" id="focusRestrictedList">
+                <p class="focus-restricted-title">专注期间已限制：</p>
+                <div class="focus-restricted-items" id="focusRestrictedItems"></div>
+            </div>
+            <div class="focus-footer">
+                <p class="focus-exit-hint">紧急退出需长按 5 秒</p>
+                <button class="btn btn-danger-outline btn-large focus-exit-btn" id="focusExitBtn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    紧急退出
+                </button>
+                <div class="hold-progress hold-progress-exit" id="focusExitHoldProgress"><span class="hold-progress-fill"></span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 推荐日程预览弹窗 -->
+    <div class="modal-overlay" id="recommendModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="recommendModalTitle">日程预览</h3>
+                <button class="modal-close" id="recommendModalClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="recommend-preview-info" id="recommendPreviewInfo"></div>
+                <div class="recommend-preview-timeline" id="recommendPreviewTimeline"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="recommendCancelBtn">取消</button>
+                <button class="btn btn-primary" id="recommendCopyBtn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    复制到今日
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 通知 -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
